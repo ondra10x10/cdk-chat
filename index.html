@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Chat App</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+<style>
+body {
+  font-family: Arial;
+  background: #111;
+  color: #0f0;
+}
+
+.hidden { display:none; }
+
+.box {
+  border: 1px solid #0f0;
+  padding: 10px;
+  margin: 10px;
+}
+
+input, button {
+  padding: 8px;
+  margin: 5px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="auth" class="box">
+  <h3>Login</h3>
+  <input id="email" placeholder="email">
+  <input id="password" type="password" placeholder="password">
+  <button onclick="login()">Login</button>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+
+  <div class="box">
+    Logged in as: <span id="me"></span>
+    <button onclick="logout()">Logout</button>
+  </div>
+
+  <div class="box">
+    <h3>Users</h3>
+    <div id="users"></div>
+  </div>
+
+  <div class="box">
+    <h3>Chat</h3>
+    <div id="chat"></div>
+
+    <input id="msg" placeholder="message">
+    <button onclick="send()">Send</button>
+  </div>
+
+</div>
+
+<script>
+const supabase = supabase.createClient(
+  "https://ciyxmqqslxuofrerwztz.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpeXhtcXFzbHh1b2ZyZXJ3enR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MjExMDQsImV4cCI6MjA5NjQ5NzEwNH0.Nd2SCeTrWLsZ8Qswio7UZ7FC5prEpCTnSr-uzx9S22s"
+);
+
+let me = null;
+let activeUser = null;
+
+/* LOGIN */
+async function login() {
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (error) return alert(error.message);
+
+  init();
+}
+
+/* LOGOUT */
+async function logout() {
+  await supabase.auth.signOut();
+  location.reload();
+}
+
+/* INIT */
+async function init() {
+  const { data } = await supabase.auth.getUser();
+  me = data.user;
+
+  document.getElementById("auth").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+
+  document.getElementById("me").innerText = me.email;
+
+  loadUsers();
+}
+
+/* USERS */
+async function loadUsers() {
+  let { data } = await supabase.from("profiles").select("*");
+
+  let html = "";
+
+  data.forEach(u => {
+    if (u.id === me.id) return;
+
+    html += `
+      <div>
+        ${u.username || u.id}
+        <button onclick="openChat('${u.id}')">Chat</button>
+      </div>
+    `;
+  });
+
+  document.getElementById("users").innerHTML = html;
+}
+
+/* OPEN CHAT */
+function openChat(userId) {
+  activeUser = userId;
+  loadMessages();
+}
+
+/* SEND MESSAGE */
+async function send() {
+  const text = document.getElementById("msg").value;
+
+  if (!activeUser) return alert("Select user first");
+
+  await supabase.from("messages").insert({
+    sender_id: me.id,
+    receiver_id: activeUser,
+    content: text
+  });
+
+  document.getElementById("msg").value = "";
+  loadMessages();
+}
+
+/* LOAD MESSAGES */
+async function loadMessages() {
+  let { data } = await supabase
+    .from("messages")
+    .select("*")
+    .or(
+      `and(sender_id.eq.${me.id},receiver_id.eq.${activeUser}),and(sender_id.eq.${activeUser},receiver_id.eq.${me.id})`
+    )
+    .order("created_at");
+
+  let html = "";
+
+  data.forEach(m => {
+    html += `<div>${m.content}</div>`;
+  });
+
+  document.getElementById("chat").innerHTML = html;
+}
+</script>
+
+</body>
+</html>
