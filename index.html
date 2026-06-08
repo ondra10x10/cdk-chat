@@ -1,169 +1,324 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>Chat App</title>
+<title>Discord Clone MVP</title>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
 
 <style>
 body {
+  margin:0;
   font-family: Arial;
-  background: #111;
-  color: #0f0;
+  background:#0f0f0f;
+  color:#fff;
 }
 
-.hidden { display:none; }
+#app { display:none; }
 
-.box {
-  border: 1px solid #0f0;
-  padding: 10px;
-  margin: 10px;
+.container {
+  display:flex;
+  height:100vh;
+}
+
+.sidebar {
+  width:260px;
+  background:#1a1a1a;
+  padding:10px;
+  overflow:auto;
+}
+
+.chat {
+  flex:1;
+  display:flex;
+  flex-direction:column;
+}
+
+.messages {
+  flex:1;
+  overflow:auto;
+  padding:10px;
+}
+
+.input {
+  display:flex;
 }
 
 input, button {
-  padding: 8px;
-  margin: 5px;
+  padding:8px;
+  margin:4px;
+}
+
+.msg {
+  background:#2a2a2a;
+  padding:5px;
+  margin:5px 0;
+}
+
+.admin {
+  background:#3a1a1a;
+}
+
+.small {
+  font-size:12px;
+  opacity:0.7;
 }
 </style>
 </head>
 
 <body>
 
-<!-- LOGIN -->
-<div id="auth" class="box">
-  <h3>Login</h3>
+<!-- AUTH -->
+<div id="auth">
+  <h2>Login / Register</h2>
   <input id="email" placeholder="email">
   <input id="password" type="password" placeholder="password">
+
   <button onclick="login()">Login</button>
+  <button onclick="register()">Register</button>
 </div>
 
 <!-- APP -->
-<div id="app" class="hidden">
+<div id="app">
 
-  <div class="box">
-    Logged in as: <span id="me"></span>
-    <button onclick="logout()">Logout</button>
-  </div>
+  <div class="container">
 
-  <div class="box">
-    <h3>Users</h3>
-    <div id="users"></div>
-  </div>
+    <!-- SIDEBAR -->
+    <div class="sidebar">
 
-  <div class="box">
-    <h3>Chat</h3>
-    <div id="chat"></div>
+      <div>
+        Logged in: <span id="me"></span>
+        <button onclick="logout()">Logout</button>
+      </div>
 
-    <input id="msg" placeholder="message">
-    <button onclick="send()">Send</button>
+      <hr>
+
+      <input id="search" placeholder="Search users" oninput="loadUsers()">
+
+      <div id="users"></div>
+
+      <hr>
+
+      <div id="groups"></div>
+
+      <button onclick="createGroup()">+ Group</button>
+
+      <hr>
+
+      <div id="adminPanel"></div>
+
+    </div>
+
+    <!-- CHAT -->
+    <div class="chat">
+
+      <div class="messages" id="messages"></div>
+
+      <div class="input">
+        <input id="msg" placeholder="message">
+        <button onclick="send()">Send</button>
+      </div>
+
+    </div>
+
   </div>
 
 </div>
 
 <script>
 const supabase = supabase.createClient(
-  "https://ciyxmqqslxuofrerwztz.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpeXhtcXFzbHh1b2ZyZXJ3enR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MjExMDQsImV4cCI6MjA5NjQ5NzEwNH0.Nd2SCeTrWLsZ8Qswio7UZ7FC5prEpCTnSr-uzx9S22s"
+  "SUPABASE_URL",
+  "SUPABASE_ANON_KEY"
 );
 
 let me = null;
 let activeUser = null;
+let activeGroup = null;
 
-/* LOGIN */
+/* ================= AUTH ================= */
+
 async function login() {
-  const email = document.getElementById("email").value;
-  const password = document.getElementById("password").value;
-
   const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password
+    email: email.value,
+    password: password.value
   });
-
-  if (error) return alert(error.message);
-
-  init();
+  if (!error) init();
 }
 
-/* LOGOUT */
+async function register() {
+  const { error } = await supabase.auth.signUp({
+    email: email.value,
+    password: password.value
+  });
+  if (error) alert(error.message);
+  else alert("Registered");
+}
+
 async function logout() {
   await supabase.auth.signOut();
   location.reload();
 }
 
-/* INIT */
+/* ================= INIT ================= */
+
 async function init() {
   const { data } = await supabase.auth.getUser();
   me = data.user;
 
-  document.getElementById("auth").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
+  document.getElementById("auth").style.display = "none";
+  document.getElementById("app").style.display = "block";
 
   document.getElementById("me").innerText = me.email;
 
   loadUsers();
+  loadAdmin();
+  subscribe();
 }
 
-/* USERS */
+/* ================= USERS ================= */
+
 async function loadUsers() {
-  let { data } = await supabase.from("profiles").select("*");
+  let q = search.value || "";
+
+  let { data } = await supabase
+    .from("profiles")
+    .select("*");
 
   let html = "";
 
-  data.forEach(u => {
-    if (u.id === me.id) return;
+  data
+    .filter(u => u.username?.includes(q) || u.id.includes(q))
+    .forEach(u => {
+      if (u.id === me.id) return;
 
-    html += `
-      <div>
-        ${u.username || u.id}
-        <button onclick="openChat('${u.id}')">Chat</button>
-      </div>
-    `;
-  });
+      html += `
+        <div onclick="openDM('${u.id}')">
+          👤 ${u.username || u.id}
+        </div>
+      `;
+    });
 
-  document.getElementById("users").innerHTML = html;
+  users.innerHTML = html;
 }
 
-/* OPEN CHAT */
-function openChat(userId) {
-  activeUser = userId;
+/* ================= DM ================= */
+
+function openDM(id) {
+  activeUser = id;
+  activeGroup = null;
   loadMessages();
 }
 
-/* SEND MESSAGE */
-async function send() {
-  const text = document.getElementById("msg").value;
+/* ================= GROUP ================= */
 
-  if (!activeUser) return alert("Select user first");
+async function createGroup() {
+  const name = prompt("Group name");
+
+  await supabase.from("groups").insert({
+    name,
+    created_by: me.id
+  });
+
+  loadGroups();
+}
+
+async function loadGroups() {
+  let { data } = await supabase.from("groups").select("*");
+
+  groups.innerHTML = data.map(g =>
+    `<div onclick="openGroup('${g.id}')"># ${g.name}</div>`
+  ).join("");
+}
+
+function openGroup(id) {
+  activeGroup = id;
+  activeUser = null;
+  loadMessages();
+}
+
+/* ================= MESSAGES ================= */
+
+async function send() {
+  if (!msg.value) return;
 
   await supabase.from("messages").insert({
     sender_id: me.id,
     receiver_id: activeUser,
-    content: text
+    group_id: activeGroup,
+    content: msg.value
   });
 
-  document.getElementById("msg").value = "";
-  loadMessages();
+  msg.value = "";
 }
 
-/* LOAD MESSAGES */
+/* realtime load */
 async function loadMessages() {
-  let { data } = await supabase
-    .from("messages")
-    .select("*")
-    .or(
+  let query = supabase.from("messages").select("*");
+
+  if (activeUser) {
+    query = query.or(
       `and(sender_id.eq.${me.id},receiver_id.eq.${activeUser}),and(sender_id.eq.${activeUser},receiver_id.eq.${me.id})`
-    )
-    .order("created_at");
+    );
+  }
 
-  let html = "";
+  if (activeGroup) {
+    query = query.eq("group_id", activeGroup);
+  }
 
-  data.forEach(m => {
-    html += `<div>${m.content}</div>`;
-  });
+  let { data } = await query.order("created_at");
 
-  document.getElementById("chat").innerHTML = html;
+  messages.innerHTML = data.map(m => `
+    <div class="msg ${isAdminView(m) ? 'admin' : ''}">
+      <div class="small">${m.sender_id}</div>
+      ${m.content}
+    </div>
+  `).join("");
 }
+
+/* ================= ADMIN ================= */
+
+async function loadAdmin() {
+  let { data } = await supabase.from("profiles").select("*");
+
+  let meData = data.find(u => u.id === me.id);
+
+  if (meData?.role === "admin") {
+    adminPanel.innerHTML = "<h3>ADMIN MODE</h3><button onclick='loadAllMessages()'>All messages</button>";
+  }
+}
+
+async function loadAllMessages() {
+  let { data } = await supabase.from("messages").select("*");
+
+  messages.innerHTML = data.map(m =>
+    `<div class="msg admin">${m.content}</div>`
+  ).join("");
+}
+
+/* ================= REALTIME ================= */
+
+function subscribe() {
+  supabase
+    .channel("messages")
+    .on("postgres_changes", {
+      event: "*",
+      table: "messages"
+    }, () => {
+      loadMessages();
+    })
+    .subscribe();
+}
+
+/* ================= COPY BLOCK (UI ONLY) ================= */
+
+document.addEventListener("copy", e => e.preventDefault());
+
+function isAdminView(m) {
+  return false;
+}
+
+/* boot */
+init();
 </script>
 
 </body>
